@@ -1,5 +1,5 @@
 name: Home Assistant Git Exporter (private)
-version: 2.1.0
+version: 2.1.1
 slug: git-exporter
 description: Export your Home Assistant configuration to a git repository you control
 url: https://github.com/GhostInTheLoop/git-exporter-Private

@@ -8,11 +8,14 @@ entities.yaml, devices.yaml and areas.yaml containing ONLY an allow-list of fiel
 This is enough to resolve the opaque ids that device-based automations use
 (device_id / entity registry id) to real entity ids, names and areas.
 
+Network addresses (IPv4, MAC) inside the exported text fields are replaced with <ip> / <mac>.
+
 Deliberately NOT exported: unique_id, identifiers, connections (MAC addresses),
 serial numbers, firmware versions, config entry ids, and any other field.
 """
 import json
 import os
+import re
 import sys
 
 import yaml
@@ -20,6 +23,17 @@ import yaml
 ENTITY_FIELDS = ("id", "entity_id", "device_id", "platform", "name", "original_name", "area_id", "disabled_by")
 DEVICE_FIELDS = ("id", "name", "name_by_user", "manufacturer", "model", "area_id", "disabled_by")
 AREA_FIELDS = ("id", "name")
+
+
+# Device and entity names often contain a network address ("Fire TV 192.168.1.5").
+IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+MAC = re.compile(r"\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b")
+
+
+def clean(value):
+    if isinstance(value, str):
+        return MAC.sub("<mac>", IPV4.sub("<ip>", value))
+    return value
 
 
 def load(storage_dir, name):
@@ -32,7 +46,7 @@ def load(storage_dir, name):
 
 
 def pick(items, fields, sort_key):
-    rows = [{f: item.get(f) for f in fields if item.get(f) is not None} for item in items or []]
+    rows = [{f: clean(item.get(f)) for f in fields if item.get(f) is not None} for item in items or []]
     return sorted(rows, key=lambda r: str(r.get(sort_key, "")))
 
 
