@@ -1,58 +1,39 @@
-# Home Assistant Git Exporter
+# git-exporter-Private
 
-Export all of your Home Assistant configuration to a git repository of your choice.
-Can be used to show your Home Assistant setup in public repositories.
+A hardened, privately maintained fork of the Home Assistant Git Exporter add-on.
+It exports your Home Assistant configuration to a git repository you control.
 
-![Addon Stage][stage-badge]
-![Supports aarch64 Architecture][aarch64-badge]
-![Supports amd64 Architecture][amd64-badge]
-![Supports armhf Architecture][armhf-badge]
-![Supports armv7 Architecture][armv7-badge]
-![Supports i386 Architecture][i386-badge]
+## Origin
 
-[![Add repository on my Home Assistant][repository-badge]][repository-url]
-[![Install on my Home Assistant][install-badge]][install-url]
-[![Donate][donation-badge]][donation-url]
+Derived from the [Poeschl-HomeAssistant-Addons/git-exporter](https://github.com/Poeschl-HomeAssistant-Addons/git-exporter)
+project (Apache License 2.0, see `LICENCE`). The upstream project is archived.
 
-# Functionality
+## Differences from upstream
 
-* Export Home Assistant configuration.
-* Export Supervisor Addon configuration.
-* Export Lovelace configuration.
-* Export ESPHome configurations.
-* Export Node-RED flows.
-* Check for plaintext secrets based on your `secrets.yaml` file and common patterns.
-* Check for plaintext ip and addresses in your config.
+- **Allow-list export.** Only `*.yaml`, `*.yml`, `*.json`, `*.md` and `.gitignore` are exported
+  from `/config` (extend with the `include` option). Tokens, keys, caches, databases, backups
+  and `custom_components/` are never exported.
+- **Every exported file is secret-scanned**, not just a few file types. The scan also covers
+  common key names and private key blocks, and matches the real values from `secrets.yaml`.
+- **No credentials in URLs or `.git/config`.** The token is passed to git through `GIT_ASKPASS`.
+- **No force-push.** A diverged remote makes the run fail instead of overwriting history.
+- **Works with an empty remote repository** (creates the branch on first push) and no longer
+  fails when there is nothing to commit.
+- **Add-on options export is off by default** and credential-looking values are redacted.
+- Built from source (no `image:` key), on a current base image, with `git-secrets` pinned to a
+  commit, PyYAML from the Alpine package, and only `amd64` / `aarch64`.
 
-# Example
+## Install
 
-For an example take a look at my own [Home Assistant configuration](https://github.com/Poeschl/home-assistant-config).
-The folders there are gettings synced with this addon.
+1. Settings -> Add-ons -> Add-on Store -> menu -> Repositories.
+2. Add `https://github.com/GhostInTheLoop/git-exporter-Private`. If the repository is private,
+   Home Assistant needs a way to read it, which can be awkward; copying the `git-exporter`
+   folder into `/addons` on the Home Assistant host is the simple alternative.
+3. Install "Home Assistant Git Exporter (private)" and read `git-exporter/DOCS.md`.
+4. **Run it with `dry_run: true` first** and check the log before enabling pushes.
 
-# Badge
+## Status
 
-If you export your config with this addon and want to help me to spread it further, here is a badge you can embed in your README.
-
-[![Home Assistant Git Exporter](https://img.shields.io/badge/Powered%20by-Home%20Assistant%20Git%20Exporter-%23d32f2f)](https://github.com/Poeschl/Hassio-Addons/tree/main/git-exporter)
-
-```markdown
-[![Home Assistant Git Exporter](https://img.shields.io/badge/Powered%20by-Home%20Assistant%20Git%20Exporter-%23d32f2f)](https://github.com/Poeschl/Hassio-Addons/tree/main/git-exporter)
-```
-
-
-[stage-badge]: https://img.shields.io/badge/Addon%20stage-stable-green.svg
-[aarch64-badge]: https://img.shields.io/badge/aarch64-yes-green.svg
-[amd64-badge]: https://img.shields.io/badge/amd64-yes-green.svg
-[armhf-badge]: https://img.shields.io/badge/armhf-yes-green.svg
-[armv7-badge]: https://img.shields.io/badge/armv7-yes-green.svg
-[i386-badge]: https://img.shields.io/badge/i386-yes-green.svg
-
-[repository-badge]: https://img.shields.io/badge/Add-repository-41BDF5?logo=home-assistant&style=for-the-badge
-[repository-url]: https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A//github.com/Poeschl-HomeAssistant-Addons/repository
-
-[install-badge]: https://img.shields.io/badge/Install%20on-Home%20Assistant-41BDF5?logo=home-assistant&style=for-the-badge
-[install-url]: https://my.home-assistant.io/redirect/supervisor_addon?addon=68413af6_git-exporter
-
-[donation-badge]: https://img.shields.io/badge/Buy%20me%20a%20coffee-%23d32f2f?logo=buy-me-a-coffee&style=for-the-badge&logoColor=white
-[donation-url]: https://www.buymeacoffee.com/Poeschl
-
+Not yet tested on a live Home Assistant instance. The export logic was exercised with a
+stubbed `bashio` against a fake `/config` and a local git remote, not inside the Supervisor,
+and the Docker image has not been built.

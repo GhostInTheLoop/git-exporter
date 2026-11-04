@@ -1,22 +1,21 @@
-name: Home Assistant Git Exporter
-version: dev
+name: Home Assistant Git Exporter (private)
+version: 2.0.0
 slug: git-exporter
-description: Export all of your Home Assistant configuration to a git repository of your choice
-url: https://github.com/Poeschl-HomeAssistant-Addons/git-exporter
+description: Export your Home Assistant configuration to a git repository you control
+url: https://github.com/GhostInTheLoop/git-exporter-Private
 arch:
-  - armhf
-  - armv7
   - aarch64
   - amd64
-  - i386
 startup: once
 boot: manual
 init: false
-image: ghcr.io/poeschl-homeassistant-addons/git-exporter-{arch}
+# No `image:` key on purpose: Home Assistant builds this add-on locally from the Dockerfile.
+# hassio_api/hassio_role are only needed for export.addons (reads other add-ons' options).
 hassio_api: true
 hassio_role: manager
 map:
-  - config
+  - type: config
+    read_only: true
 options:
   repository:
     url: ''
@@ -27,13 +26,14 @@ options:
     branch_name: main
   export:
     lovelace: true
-    addons: true
+    addons: false
     esphome: true
     node_red: true
   check:
     enabled: true
     check_for_secrets: true
     check_for_ips: true
+  include: []
   exclude:
     - '*.db'
     - '*.log*'
@@ -68,6 +68,8 @@ schema:
     enabled: bool
     check_for_secrets: bool
     check_for_ips: bool
+  include:
+    - str
   exclude:
     - str
   secrets:
