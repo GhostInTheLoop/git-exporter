@@ -10,13 +10,14 @@ repository:
   branch_name: 'main'
 export:
   lovelace: true
-  addons: true
+  addons: false
   esphome: true
   node_red: true
-checks:
+check:
   enabled: true
   check_for_secrets: true
   check_for_ips: true
+include: []
 exclude:
   - '*.db'
   - '*.log'
@@ -50,7 +51,9 @@ Your password or [__access token__](https://docs.github.com/en/authentication/ke
 
 ### `repository.pull_before_push`
 
-Should the repository be pulled first and commit the new state on top?
+Should the repository be pulled first and commit the new state on top? If the remote is empty, or the
+branch does not exist yet, it is created on the first push. The add-on never force-pushes: if the remote
+has diverged the run fails.
 
 ### `repository.commit_message`
 
@@ -69,9 +72,10 @@ Use this to disable the ssl verification. Can be used for self-signed certificat
 
 Enable / Disable the export for the lovelace config.
 
-### `export.addons`
+### `export.addons` (default: false)
 
-Enable / Disable the export for the supervisor addons config.
+Enable / Disable the export for the supervisor addons config. Values of keys that look like
+credentials (password, token, secret, key, ...) are replaced with `<redacted>`.
 
 ### `export.esphome`
 
@@ -83,28 +87,36 @@ Enable / Disable the export for the Node-RED flows.
 Secure your credentials with [node-red-contrib-credentials](https://flows.nodered.org/node/node-red-contrib-credentials).
 
 
-### `checks.enabled`
+### `check.enabled`
 
 Enable / Disable the checks in the exported files.
 
-### `checks.check_for_secrets`
+### `check.check_for_secrets`
 
 Add your secret values to the check.
 
-### `checks.check_for_ips`
+### `check.check_for_ips`
 
 Add pattern for ip and mac addresses to the search.
 
 
+### `include`
+
+By default only `*.yaml`, `*.yml`, `*.json`, `*.md` and `.gitignore` files are exported from
+`/config`. Add extra glob patterns here (for example `*.py`). Anything you add is still scanned
+for secrets, but think before adding file types that can hold credentials.
+
 ### `exclude`
 
-The files / folders which should be excluded from the config export.
+Additional files / folders to leave out of the config export.
 
-Following folders and files are excluded from the sync per default:
+Always excluded, regardless of `include`:
 
-* `secrets.yaml` (secrets are cleared)
-* `.cloud`
-* `.storage`
+* `secrets.yaml` (only the key names are exported, with empty values)
+* `.storage/`, `.cloud/`, `.git/`, `.uuid`
+* `esphome/`, `node-red/` (exported separately, if enabled)
+* `custom_components/`, `backups/`, `ssl/`, `deps/`, `tts/`
+* `*service_account*`, `*client_secret*`, `*credentials*`, `*token*`, `*.pem`, `*.key`
 
 ### `secrets`
 
@@ -118,13 +130,16 @@ Additional allowed secrets which will not make the secret check fail.
 
 ### `dry_run`
 
-Only show the changes and don't commit or push.
+Only show the changes and don't commit or push. Use this for the first run.
 
 
 ## Known limitations
 
-`check_for_secrets` Uses a git plugin that does pattern matching using regexes.
-A limitation of this plugin is that using brackets (like `[`, `]`, `{`, `}` `(` and `)`) in secrets can result in unexpected behaviour and crashes.
-
-If the addon fails during secrets checking with errors originating from grep (I.E. `grep: Unmatched [, [^, [:, [., or [=`),
-change the passwords that contain brackets or set `check_for_secrets` to `false`.
+* The secret check is a safety net, not a guarantee. Review the first export in your repository by hand
+  and keep the target repository **private**.
+* Values from `secrets.yaml` are matched as literal strings (values shorter than 4 characters are skipped).
+  Custom entries in `secrets` are regular expressions, so brackets in them can cause grep errors.
+* `.storage` is never exported, so the device / entity / area registries and non-Lovelace dashboards
+  are not in the repository.
+* `hassio_role: manager` is only needed for `export.addons`. If you never enable that option the role
+  can probably be removed (untested).
