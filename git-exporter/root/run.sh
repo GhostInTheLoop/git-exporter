@@ -206,6 +206,13 @@ function export_addons {
     chmod -R u=rwX,go=rX "${local_repository}/addons"
 }
 
+function export_registry {
+    bashio::log.info 'Get entity, device and area registry (id, name and area fields only)'
+    mkdir -p "${local_repository}/registry"
+    /utils/registryExport.py /config/.storage "${local_repository}/registry"
+    chmod -R u=rwX,go=rX "${local_repository}/registry"
+}
+
 function export_node-red {
     bashio::log.info 'Get Node-RED flows'
     mkdir -p "${local_repository}/node-red"
@@ -231,6 +238,10 @@ fi
 
 if [ "$(bashio::config 'export.addons')" == 'true' ]; then
     export_addons
+fi
+
+if [ "$(bashio::config 'export.registry')" == 'true' ]; then
+    export_registry
 fi
 
 if [ "$(bashio::config 'export.node_red')" == 'true' ] && [ -d '/config/node-red' ]; then

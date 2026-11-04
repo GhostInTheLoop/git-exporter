@@ -13,6 +13,7 @@ export:
   addons: false
   esphome: true
   node_red: true
+  registry: false
 check:
   enabled: true
   check_for_secrets: true
@@ -77,6 +78,14 @@ Enable / Disable the export for the lovelace config.
 Enable / Disable the export for the supervisor addons config. Values of keys that look like
 credentials (password, token, secret, key, ...) are replaced with `<redacted>`.
 
+### `export.registry` (default: false)
+
+Exports a minimal view of the entity, device and area registries to `registry/*.yaml`. Only an
+allow-list of fields is written (ids, entity ids, names, platform, area, disabled state). This
+lets you (or a tool reading your repository) resolve the opaque `device_id` / registry ids used
+by device-based automations. `unique_id`, MAC addresses, serial numbers and other identifiers are
+**not** exported. Everything is still secret-scanned.
+
 ### `export.esphome`
 
 Enable / Disable the export for the esphome config.
@@ -139,7 +148,7 @@ Only show the changes and don't commit or push. Use this for the first run.
   and keep the target repository **private**.
 * Values from `secrets.yaml` are matched as literal strings (values shorter than 4 characters are skipped).
   Custom entries in `secrets` are regular expressions, so brackets in them can cause grep errors.
-* `.storage` is never exported, so the device / entity / area registries and non-Lovelace dashboards
-  are not in the repository.
+* `.storage` is never exported as such. Only Lovelace dashboards, and (with `export.registry`) a
+  minimal registry view, are written. Other `.storage` data is not in the repository.
 * `hassio_role: manager` is only needed for `export.addons`. If you never enable that option the role
   can probably be removed (untested).
