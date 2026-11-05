@@ -5,6 +5,7 @@ Pulls one branch of a git repository into the add-on's OWN data folder and copie
 of files into /config:
 
     automations.yaml, scripts.yaml, scenes.yaml, dashboards/*.yaml
+    themes/*.yaml        (Home Assistant themes; reloaded without a restart)
     configuration.yaml   (only when deploy_configuration is switched on; never restarts Home Assistant)
 
 Nothing else in /config is ever read, written or deleted. Every overwritten file is backed up first,
@@ -36,6 +37,7 @@ FIXED_FILES = ("automations.yaml", "scripts.yaml", "scenes.yaml")
 CONFIG_FILE = "configuration.yaml"
 DASHBOARD_DIR = "dashboards"
 DASHBOARD_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.ya?ml$")
+THEME_DIR = "themes"
 RELOAD_SERVICES = ("automation/reload", "script/reload", "scene/reload")
 
 
@@ -117,12 +119,13 @@ def candidates(repo, include_configuration=False):
         path = os.path.join(repo, name)
         if os.path.isfile(path) and not os.path.islink(path):
             found.append(name)
-    d = os.path.join(repo, DASHBOARD_DIR)
-    if os.path.isdir(d) and not os.path.islink(d):
-        for name in sorted(os.listdir(d)):
-            path = os.path.join(d, name)
-            if DASHBOARD_NAME.match(name) and os.path.isfile(path) and not os.path.islink(path):
-                found.append(f"{DASHBOARD_DIR}/{name}")
+    for folder in (DASHBOARD_DIR, THEME_DIR):
+        d = os.path.join(repo, folder)
+        if os.path.isdir(d) and not os.path.islink(d):
+            for name in sorted(os.listdir(d)):
+                path = os.path.join(d, name)
+                if DASHBOARD_NAME.match(name) and os.path.isfile(path) and not os.path.islink(path):
+                    found.append(f"{folder}/{name}")
     return found
 
 
@@ -164,6 +167,9 @@ def validate(repo, files, config_dir=None):
         elif rel.startswith(DASHBOARD_DIR + "/"):
             if not isinstance(data, dict) or not data.get("views"):
                 problems.append(f"{rel} needs a top-level 'views' list")
+        elif rel.startswith(THEME_DIR + "/"):
+            if not isinstance(data, dict) or not data or not all(isinstance(v, dict) for v in data.values()):
+                problems.append(f"{rel} must map theme names to their settings")
     return problems
 
 
@@ -268,8 +274,8 @@ def check_config(settings):
     return False, str((result or {}).get("errors") if isinstance(result, dict) else result)
 
 
-def reload_all(settings):
-    for service in RELOAD_SERVICES:
+def reload_all(settings, themes_changed=False):
+    for service in RELOAD_SERVICES + (("frontend/reload_themes",) if themes_changed else ()):
         try:
             api(settings, "POST", f"/services/{service}")
             log("INFO", f"reloaded {service.split('/')[0]}")
@@ -346,7 +352,7 @@ def run_once(settings):
         return "rolled-back"
 
     if settings.reload:
-        reload_all(settings)
+        reload_all(settings, any(rel.startswith(THEME_DIR + "/") for rel, _kind in changes))
     state["deployed_sha"] = sha
     save_state(settings, state)
     prune_backups(settings)

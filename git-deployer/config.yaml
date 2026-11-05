@@ -1,5 +1,5 @@
 name: Home Assistant Git Deployer (private)
-version: 1.1.0
+version: 1.2.0
 slug: git-deployer
 description: Safely deploy automations, scripts, scenes and dashboards from a git branch into Home Assistant
 url: https://github.com/GhostInTheLoop/git-exporter-Private
