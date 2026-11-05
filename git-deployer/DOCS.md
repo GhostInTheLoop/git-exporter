@@ -4,6 +4,7 @@ Deploys four things from one git branch into Home Assistant, and nothing else:
 
 - `automations.yaml`, `scripts.yaml`, `scenes.yaml`
 - `dashboards/*.yaml` (dashboards running in YAML mode)
+- `configuration.yaml`, **only if you switch on `deploy_configuration`** (off by default, see below)
 
 It never clones into `/config`. It keeps its own working copy in the add-on's data folder and copies
 only those files across. `secrets.yaml`, `configuration.yaml`, `.storage`, `custom_components` and
@@ -33,6 +34,7 @@ Symlinks and any other file names on the branch are ignored.
 | `poll_interval` | `0` | Seconds between checks. `0` checks once and stops |
 | `reload` | `true` | Reload automations, scripts and scenes after a successful deploy |
 | `keep_backups` | `20` | How many backup folders to keep |
+| `deploy_configuration` | `false` | Also deploy `configuration.yaml`. See "Deploying configuration.yaml" |
 
 ## First use
 
@@ -43,6 +45,25 @@ Symlinks and any other file names on the branch are ignored.
 4. Set `dry_run: false` and start it once. The log shows the files copied, the configuration check,
    the reloads and where the backup of the old files is.
 5. When that works, set `poll_interval: 300`, switch on "Start on boot", and start it.
+
+## Deploying configuration.yaml
+
+Off by default, because a bad `configuration.yaml` can stop Home Assistant from starting.
+With `deploy_configuration: true` the file goes through the same steps as the others (validate,
+back up, copy, configuration check, rollback on failure) plus these extra rules:
+
+- It must parse as YAML and still contain `default_config`.
+- It is refused if it would be less than half the size of the current file, in case it was truncated.
+- Any change to it is **never** applied with an automatic restart. Most changes to this file only take
+  effect after a restart, so the add-on logs a warning and posts a persistent notification
+  "Git Deployer: restart needed". Restart Home Assistant when you are ready.
+- Home Assistant's configuration check also catches missing `!secret` keys and `!include` files. The
+  check cannot catch an integration that loads but misbehaves afterwards, so start with `dry_run: true`,
+  read the list of files, and keep each change to this file small.
+- `secrets.yaml` is still never copied, whatever the option says.
+
+To undo a bad `configuration.yaml`: revert the change in the repository (it deploys again), or restore
+the previous copy from the add-on's backups.
 
 ## Notes and limits
 

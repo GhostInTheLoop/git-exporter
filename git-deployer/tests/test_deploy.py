@@ -21,14 +21,20 @@ DASH = "views:\n- title: Office\n  cards: []\n"
 OLD_AUTOMATIONS = "- id: 'old'\n  alias: Old\n  triggers: []\n  actions: []\n"
 
 
+CONFIG_OLD = "default_config:\n\nfrontend:\n  themes: !include_dir_merge_named themes\n\nautomation: !include automations.yaml\n"
+CONFIG_NEW = CONFIG_OLD + "\nlovelace:\n  dashboards:\n    office-tab-v2:\n      mode: yaml\n      title: Office\n      filename: dashboards/office_tab_v2.yaml\n"
+
+
 class FakeApi(http.server.BaseHTTPRequestHandler):
     calls = []
+    bodies = []
     check_result = {"result": "valid", "errors": None}
 
     def do_POST(self):  # noqa: N802
         length = int(self.headers.get("Content-Length", 0))
-        self.rfile.read(length)
+        raw = self.rfile.read(length)
         FakeApi.calls.append(self.path)
+        FakeApi.bodies.append((self.path, json.loads(raw or b"{}")))
         body = json.dumps(FakeApi.check_result if self.path.endswith("check_config") else []).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -56,6 +62,7 @@ class DeployTests(unittest.TestCase):
 
     def setUp(self):
         FakeApi.calls = []
+        FakeApi.bodies = []
         FakeApi.check_result = {"result": "valid", "errors": None}
         self.tmp = tempfile.TemporaryDirectory()
         t = self.tmp.name
@@ -72,7 +79,7 @@ class DeployTests(unittest.TestCase):
         # live /config before the first deploy
         self.write(self.config, "automations.yaml", OLD_AUTOMATIONS)
         self.write(self.config, "secrets.yaml", "api: REAL-SECRET\n")
-        self.write(self.config, "configuration.yaml", "default_config:\n")
+        self.write(self.config, "configuration.yaml", CONFIG_OLD)
         self.publish({"automations.yaml": AUTOMATIONS, "scripts.yaml": SCRIPTS, "scenes.yaml": SCENES,
                       "dashboards/office.yaml": DASH})
         env = {
@@ -146,7 +153,7 @@ class DeployTests(unittest.TestCase):
         })
         self.assertEqual(self.run_once(), "deployed")
         self.assertEqual(self.read(self.config, "secrets.yaml"), "api: REAL-SECRET\n")
-        self.assertEqual(self.read(self.config, "configuration.yaml"), "default_config:\n")
+        self.assertEqual(self.read(self.config, "configuration.yaml"), CONFIG_OLD)
         self.assertFalse(os.path.exists(os.path.join(self.config, "custom_components")))
         self.assertFalse(os.path.exists(os.path.join(self.config, "tools")))
         self.assertFalse(os.path.exists(os.path.join(self.config, "dashboards", "notes.txt")))
@@ -206,6 +213,66 @@ class DeployTests(unittest.TestCase):
             newest = sorted(os.listdir(backups))[-1]
             os.rename(os.path.join(backups, newest), os.path.join(backups, f"2026010{i}-000000"))
         self.assertLessEqual(len(os.listdir(os.path.join(self.data, "backups"))), 3)
+
+    # ---- deploy_configuration -----------------------------------------------------------
+    def test_configuration_is_ignored_unless_the_option_is_on(self):
+        self.publish({"configuration.yaml": CONFIG_NEW})
+        self.assertEqual(self.run_once(), "deployed")
+        self.assertEqual(self.read(self.config, "configuration.yaml"), CONFIG_OLD)
+
+    def test_configuration_deploys_when_enabled_and_asks_for_a_restart(self):
+        os.environ["DEPLOY_CONFIGURATION"] = "true"
+        self.publish({"configuration.yaml": CONFIG_NEW})
+        self.assertEqual(self.run_once(), "deployed")
+        self.assertEqual(self.read(self.config, "configuration.yaml"), CONFIG_NEW)
+        stamp = os.listdir(os.path.join(self.data, "backups"))[0]
+        self.assertEqual(self.read(os.path.join(self.data, "backups", stamp), "configuration.yaml"), CONFIG_OLD)
+        restart = [b for p, b in FakeApi.bodies if p.endswith("persistent_notification/create") and b.get("notification_id") == "git_deployer_restart"]
+        self.assertEqual(len(restart), 1)
+        self.assertIn("Restart Home Assistant", restart[0]["message"])
+        # it never restarts by itself
+        self.assertFalse(any("restart" in c and "notification" not in c for c in FakeApi.calls))
+
+    def test_no_restart_notice_when_configuration_did_not_change(self):
+        os.environ["DEPLOY_CONFIGURATION"] = "true"
+        self.publish({"configuration.yaml": CONFIG_OLD})
+        self.run_once()
+        self.assertFalse(any(b.get("notification_id") == "git_deployer_restart" for _p, b in FakeApi.bodies))
+
+    def test_configuration_without_default_config_is_rejected(self):
+        os.environ["DEPLOY_CONFIGURATION"] = "true"
+        self.publish({"configuration.yaml": "frontend:\n  themes: x\n" + "# padding\n" * 40})
+        self.assertEqual(self.run_once(), "invalid")
+        self.assertEqual(self.read(self.config, "configuration.yaml"), CONFIG_OLD)
+        self.assertEqual(self.read(self.config, "automations.yaml"), OLD_AUTOMATIONS)  # nothing else was copied either
+
+    def test_configuration_that_shrinks_by_more_than_half_is_rejected(self):
+        os.environ["DEPLOY_CONFIGURATION"] = "true"
+        self.write(self.config, "configuration.yaml", CONFIG_NEW + "# a long comment\n" * 60)
+        self.publish({"configuration.yaml": "default_config:\n"})
+        self.assertEqual(self.run_once(), "invalid")
+        self.assertIn("a long comment", self.read(self.config, "configuration.yaml"))
+
+    def test_invalid_configuration_yaml_is_rejected(self):
+        os.environ["DEPLOY_CONFIGURATION"] = "true"
+        self.publish({"configuration.yaml": "default_config:\nfrontend: [oops\n"})
+        self.assertEqual(self.run_once(), "invalid")
+        self.assertEqual(self.read(self.config, "configuration.yaml"), CONFIG_OLD)
+
+    def test_failed_check_restores_configuration_yaml_too(self):
+        os.environ["DEPLOY_CONFIGURATION"] = "true"
+        self.publish({"configuration.yaml": CONFIG_NEW})
+        FakeApi.check_result = {"result": "invalid", "errors": "Platform error lovelace"}
+        self.assertEqual(self.run_once(), "rolled-back")
+        self.assertEqual(self.read(self.config, "configuration.yaml"), CONFIG_OLD)
+        self.assertEqual(self.read(self.config, "automations.yaml"), OLD_AUTOMATIONS)
+        self.assertFalse(any(b.get("notification_id") == "git_deployer_restart" for _p, b in FakeApi.bodies))
+
+    def test_secrets_yaml_is_still_never_copied_with_the_option_on(self):
+        os.environ["DEPLOY_CONFIGURATION"] = "true"
+        self.publish({"configuration.yaml": CONFIG_NEW, "secrets.yaml": "api: FROM-REPO\n"})
+        self.run_once()
+        self.assertEqual(self.read(self.config, "secrets.yaml"), "api: REAL-SECRET\n")
 
 
 if __name__ == "__main__":
