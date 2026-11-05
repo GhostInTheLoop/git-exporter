@@ -5,6 +5,7 @@ Pulls one branch of a git repository into the add-on's OWN data folder and copie
 of files into /config:
 
     automations.yaml, scripts.yaml, scenes.yaml, dashboards/*.yaml
+    configuration.yaml   (only when deploy_configuration is switched on; never restarts Home Assistant)
 
 Nothing else in /config is ever read, written or deleted. Every overwritten file is backed up first,
 Home Assistant's configuration check runs afterwards, and a failed check restores the old files.
@@ -12,7 +13,7 @@ Home Assistant's configuration check runs afterwards, and a failed check restore
 Settings come from environment variables (set by run.sh from the add-on options):
     DEPLOY_REPO_URL, DEPLOY_USERNAME, DEPLOY_PASSWORD, DEPLOY_BRANCH
     DEPLOY_DRY_RUN (true/false), DEPLOY_POLL_INTERVAL (seconds, 0 = run once)
-    DEPLOY_RELOAD (true/false), DEPLOY_KEEP_BACKUPS
+    DEPLOY_RELOAD (true/false), DEPLOY_KEEP_BACKUPS, DEPLOY_CONFIGURATION (true/false)
     CONFIG_DIR (default /config), DATA_DIR (default /data)
     SUPERVISOR_URL (default http://supervisor/core/api), SUPERVISOR_TOKEN
 """
@@ -32,6 +33,7 @@ import urllib.request
 import yaml
 
 FIXED_FILES = ("automations.yaml", "scripts.yaml", "scenes.yaml")
+CONFIG_FILE = "configuration.yaml"
 DASHBOARD_DIR = "dashboards"
 DASHBOARD_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.ya?ml$")
 RELOAD_SERVICES = ("automation/reload", "script/reload", "scene/reload")
@@ -52,6 +54,7 @@ class Settings:
         self.poll = int(e.get("DEPLOY_POLL_INTERVAL", "0") or 0)
         self.reload = env_bool("DEPLOY_RELOAD", True)
         self.keep = int(e.get("DEPLOY_KEEP_BACKUPS", "20") or 20)
+        self.deploy_configuration = env_bool("DEPLOY_CONFIGURATION", False)
         self.config_dir = e.get("CONFIG_DIR", "/config")
         self.data_dir = e.get("DATA_DIR", "/data")
         self.api = e.get("SUPERVISOR_URL", "http://supervisor/core/api").rstrip("/")
@@ -106,10 +109,11 @@ class Loader(yaml.SafeLoader):
 Loader.add_multi_constructor("!", lambda loader, suffix, node: None)
 
 
-def candidates(repo):
+def candidates(repo, include_configuration=False):
     """The allow-listed files that exist in the repo, as relative POSIX paths."""
     found = []
-    for name in FIXED_FILES:
+    names = FIXED_FILES + ((CONFIG_FILE,) if include_configuration else ())
+    for name in names:
         path = os.path.join(repo, name)
         if os.path.isfile(path) and not os.path.islink(path):
             found.append(name)
@@ -122,7 +126,7 @@ def candidates(repo):
     return found
 
 
-def validate(repo, files):
+def validate(repo, files, config_dir=None):
     """Return a list of blocking problems for the files that would be deployed."""
     problems = []
     for rel in files:
@@ -141,6 +145,16 @@ def validate(repo, files):
                     problems.append("every automation needs an id and an alias")
                 if len(set(ids)) != len(ids):
                     problems.append("automation ids are not unique")
+        elif rel == CONFIG_FILE:
+            if not isinstance(data, dict) or "default_config" not in data:
+                problems.append("configuration.yaml must be a mapping that still contains 'default_config'")
+            elif config_dir:
+                current = os.path.join(config_dir, CONFIG_FILE)
+                if os.path.isfile(current):
+                    old, new = os.path.getsize(current), os.path.getsize(os.path.join(repo, rel))
+                    if old > 0 and new < old * 0.5:
+                        problems.append(f"configuration.yaml would shrink from {old} to {new} bytes (more than half); "
+                                        "refusing in case it was truncated")
         elif rel == "scripts.yaml":
             if not isinstance(data, dict):
                 problems.append("scripts.yaml must be a mapping")
@@ -263,10 +277,10 @@ def reload_all(settings):
             log("WARNING", f"could not reload {service.split('/')[0]}: {exc}")
 
 
-def notify(settings, title, message):
+def notify(settings, title, message, notification_id="git_deployer"):
     try:
         api(settings, "POST", "/services/persistent_notification/create",
-            {"title": title, "message": message, "notification_id": "git_deployer"})
+            {"title": title, "message": message, "notification_id": notification_id})
     except (urllib.error.URLError, OSError, ValueError):
         pass
 
@@ -295,12 +309,12 @@ def run_once(settings):
     os.makedirs(settings.data_dir, exist_ok=True)
     repo, sha = sync_repo(settings)
     state = load_state(settings)
-    files = candidates(repo)
+    files = candidates(repo, settings.deploy_configuration)
     if not files:
         log("WARNING", f"branch '{settings.branch}' has none of the deployable files; nothing to do")
         return "empty"
 
-    problems = validate(repo, files)
+    problems = validate(repo, files, settings.config_dir)
     if problems:
         for problem in problems:
             log("ERROR", problem)
@@ -338,6 +352,14 @@ def run_once(settings):
     prune_backups(settings)
     log("INFO", f"deployed commit {sha[:7]}. Previous versions are in {backup_dir}")
     notify(settings, "Git Deployer", f"Deployed commit {sha[:7]}: {summary}")
+    if any(rel == CONFIG_FILE for rel, _kind in changes):
+        # Most changes to configuration.yaml only take effect after a restart. Never restart automatically.
+        log("WARNING", "configuration.yaml changed and passed the configuration check. "
+                       "Restart Home Assistant when you are ready to apply it.")
+        notify(settings, "Git Deployer: restart needed",
+               f"configuration.yaml was updated from commit {sha[:7]} and passed the configuration check. "
+               "Restart Home Assistant to apply it. The previous file is in the add-on's backups.",
+               notification_id="git_deployer_restart")
     return "deployed"
 
 
