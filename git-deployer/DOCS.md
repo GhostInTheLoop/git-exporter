@@ -4,6 +4,7 @@ Deploys four things from one git branch into Home Assistant, and nothing else:
 
 - `automations.yaml`, `scripts.yaml`, `scenes.yaml`
 - `dashboards/*.yaml` (dashboards running in YAML mode)
+- `themes/*.yaml` (Home Assistant themes; only files directly in that folder, other themes are never touched)
 - `configuration.yaml`, **only if you switch on `deploy_configuration`** (off by default, see below)
 
 It never clones into `/config`. It keeps its own working copy in the add-on's data folder and copies
@@ -20,7 +21,7 @@ Symlinks and any other file names on the branch are ignored.
 4. Backs up each file it is about to overwrite, then copies the new files in.
 5. Asks Home Assistant to check the configuration. **If the check fails, every file is restored** and
    newly created files are removed.
-6. Reloads automations, scripts and scenes (no restart) and posts a notification.
+6. Reloads automations, scripts and scenes (no restart), plus themes when a theme file changed, and posts a notification.
 
 ## Options
 

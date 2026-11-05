@@ -274,6 +274,46 @@ class DeployTests(unittest.TestCase):
         self.run_once()
         self.assertEqual(self.read(self.config, "secrets.yaml"), "api: REAL-SECRET\n")
 
+    # ---- themes ---------------------------------------------------------------------------
+    THEME = "glass:\n  primary-text-color: '#fff'\n  ha-card-border-radius: 22px\n"
+
+    def test_theme_is_deployed_and_themes_are_reloaded(self):
+        self.publish({"themes/glass.yaml": self.THEME})
+        self.assertEqual(self.run_once(), "deployed")
+        self.assertEqual(self.read(self.config, "themes/glass.yaml"), self.THEME)
+        self.assertIn("/services/frontend/reload_themes", FakeApi.calls)
+
+    def test_themes_are_not_reloaded_when_no_theme_changed(self):
+        self.run_once()
+        FakeApi.calls = []
+        self.publish({"scenes.yaml": SCENES + "- id: '77'\n  name: N\n  entities: {}\n"})
+        self.assertEqual(self.run_once(), "deployed")
+        self.assertNotIn("/services/frontend/reload_themes", FakeApi.calls)
+
+    def test_only_yaml_files_directly_in_themes_are_copied(self):
+        self.publish({"themes/glass.yaml": self.THEME, "themes/notes.txt": "no\n", "themes/sub/deep.yaml": self.THEME, "themes/.hidden.sh": "x\n"})
+        self.assertEqual(self.run_once(), "deployed")
+        self.assertTrue(os.path.isfile(os.path.join(self.config, "themes", "glass.yaml")))
+        for rel in ("notes.txt", "sub", ".hidden.sh"):
+            self.assertFalse(os.path.exists(os.path.join(self.config, "themes", rel)), rel)
+
+    def test_existing_themes_are_left_alone(self):
+        self.write(self.config, "themes/ios-themes/ios.yaml", "ios:\n  primary-color: red\n")
+        self.publish({"themes/glass.yaml": self.THEME})
+        self.run_once()
+        self.assertEqual(self.read(self.config, "themes/ios-themes/ios.yaml"), "ios:\n  primary-color: red\n")
+
+    def test_invalid_theme_blocks_the_whole_deploy(self):
+        self.publish({"themes/glass.yaml": "just a string\n"})
+        self.assertEqual(self.run_once(), "invalid")
+        self.assertEqual(self.read(self.config, "automations.yaml"), OLD_AUTOMATIONS)
+
+    def test_failed_check_removes_a_new_theme_again(self):
+        self.publish({"themes/glass.yaml": self.THEME})
+        FakeApi.check_result = {"result": "invalid", "errors": "bad"}
+        self.assertEqual(self.run_once(), "rolled-back")
+        self.assertFalse(os.path.exists(os.path.join(self.config, "themes", "glass.yaml")))
+
 
 if __name__ == "__main__":
     unittest.main()
