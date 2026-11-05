@@ -37,3 +37,10 @@ project (Apache License 2.0, see `LICENCE`). The upstream project is archived.
 Not yet tested on a live Home Assistant instance. The export logic was exercised with a
 stubbed `bashio` against a fake `/config` and a local git remote, not inside the Supervisor,
 and the Docker image has not been built.
+
+## Git Deployer
+
+`git-deployer/` is a second add-on in this repository. It pulls a branch into its own folder and copies
+only `automations.yaml`, `scripts.yaml`, `scenes.yaml` and `dashboards/*.yaml` into `/config`, with
+backups, a configuration check and automatic rollback. It never clones into `/config`. Start it with
+`dry_run: true`; see `git-deployer/DOCS.md`. Tests: `python3 -m unittest discover -s git-deployer/tests`.
